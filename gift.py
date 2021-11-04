@@ -82,7 +82,11 @@ def community_size_analysis(cur_connection):
 def generation(families, connection):
     if exchange == 0:
         for family in families:
-            family.wealth += 1 + math.log(1 + family.wealth * feedback)
+            if birth == "linear":
+                family.wealth += 1 + math.log(1 + family.wealth * feedback)
+            else:
+                family.wealth += 1 + family.wealth * feedback
+
     else:
         for e in range(exchange):
             independents = [family.family_id for family in families if family.status == 1]
@@ -107,6 +111,10 @@ def generation(families, connection):
                         recipient.given += doner.wealth
                         doner.wealth = 0
                         connection[recipient_id, doner_id] += eta
+
+            # for family in families:
+            #     print(family.status, family.wealth, family.give, family.given, family.debt)
+            # exploration
 
             for family in families:
                 if birth == "linear":
@@ -165,6 +173,35 @@ def generation(families, connection):
                                 owner.subordinates.append(family)
             connection = connection / np.sum(connection, axis = 0)
 
+    while True:
+        counter = 0
+        for family in families:
+            if family.status == 0 and family.wealth > 0:
+                count = 0
+                for debt in family.debt:
+                    owner = debt[0]
+                    debt_wealth = debt[1]
+                    if family.wealth >= debt_wealth:
+                        owner.wealth += debt_wealth
+                        connection[owner.family_id, family_id] += eta
+                        if family in owner.subordinates:
+                            owner.subordinates.remove(family)
+                        family.wealth -= debt_wealth
+                        count += 1
+                    else:
+                        owner.wealth += family.wealth
+                        connection[owner.family_id, family_id] += eta
+                        debt[1] -= family.wealth
+                        family.wealth = 0
+                        break
+                family.debt = family.debt[count:]
+                if len(family.debt) == 0:
+                    family.status = 1
+                counter += 1
+        if counter == 0:
+            break
+
+
     # for i in range(len(families)):
     #     families[i].family_id = i
 
@@ -177,8 +214,9 @@ def generation(families, connection):
         statuses.append(family.status)
         num_subordinates.append(len(family.subordinates))
 
-    wealths.sort()
-    top_5pc = wealths[round(num_families * 0.95)]
+    wealths_ls = wealths[:]
+    wealths_ls.sort()
+    top_5pc = wealths_ls[round(num_families * 0.95)]
 
     independent_duration, subordinate_duration, rich_duration = [], [], []
     for family in families:
@@ -208,6 +246,7 @@ def generation(families, connection):
     return families, connection, statuses, num_subordinates, wealths, connection_to, independent_duration, subordinate_duration, rich_duration
 
 
+
 def reproduction(families, connection):
     # wealths = [1 + family.wealth * feedback for family in families]
     if birth == "linear":
@@ -217,6 +256,7 @@ def reproduction(families, connection):
     births = Counter(random.choices(list(range(num_families)), weights = wealths, k = num_families))
     count = num_families
     next_families = []
+
     for family_id in births:
         family = families[family_id]
         num_children = births[family_id]
@@ -254,19 +294,25 @@ def reproduction(families, connection):
             for subordinate in cur_subordinates:
                 for debt in subordinate.debt:
                     if debt[0] == family:
-                        debt[0] = families[-1]
+                        debt[0] = next_families[-1]
             for debt in cur_debts:
                 boss = debt[0]
-                boss.subordinates = list(set(boss.subordinates) - set([family]) | set([families[-1]]))
+                boss.subordinates = list(set(boss.subordinates) - set([family]) | set([next_families[-1]]))
 
-            arr = connection[family_id] * np.random.normal(1.0, mutation, count) * weights_ori[i]
-            connection = np.insert(connection, count, arr, axis = 0)
-            arr = connection[:, family_id] * np.random.normal(1.0, mutation, count + 1)
-            connection = np.insert(connection, count, arr, axis = 1)
+            # arr_to = connection[family_id] * np.random.normal(1.0, mutation, count) * weights_ori[i]
+            arr_to = connection[family_id] * np.random.normal(1.0, mutation, count)
+            connection = np.insert(connection, count, arr_to, axis = 0)
+            arr_from = connection[:, family_id] * np.random.normal(1.0, mutation, count + 1)
+            connection = np.insert(connection, count, arr_from, axis = 1)
+            connection[count, count] = 0
+
             for j in range(i):
+                # connection[count, count - j - 1] = 1 / num_families / num_children
+                # connection[count - j - 1, count] = 1 / num_families / num_children
                 connection[count, count - j - 1] = 1 / num_families
                 connection[count - j - 1, count] = 1 / num_families
             count += 1
+
 
     for family_id in range(num_families):
         if births[family_id] == 0:
@@ -289,9 +335,9 @@ def reproduction(families, connection):
     connection = connection / np.sum(connection, axis = 0)
     families = next_families[:]
 
-
     return families, connection
 
+# families, connection = state.families, state.connection
 
 def main():
     families = [Family(i, 1.0, 1, [], [], 1, 0, 0) for i in range(num_families)]
@@ -324,6 +370,8 @@ def main():
         independent_duration_res.extend(independent_duration)
         subordinate_duration_res.extend(subordinate_duration)
         rich_duration_res.extend(rich_duration)
+        population_ratio = int(round(sum(statuses) / len(statuses), 2) * 100)
+        population_ratio_res.append(population_ratio)
 
         cur_connection = 1 * (state.connection > eta)
         df = pd.DataFrame(cur_connection)
@@ -353,16 +401,20 @@ def main():
             pass
         average_cluster_res.append(nx.average_clustering(G2))
         flow_hierarchy_res.append(nx.flow_hierarchy(G2))
-        independents, subordinates  = [], []
-        for id in range(num_families):
-            if families[id].status == 1:
-                independents.append(id)
-            else:
-                subordinates.append(id)
-        population_ratio = int(round(sum(statuses_res) / len(statuses_res), 2) * 100)
-        population_ratio_res.append(population_ratio)
         connection_to_res2.extend(np.sum(cur_connection, axis = 1))
         degree_assortativity_res.append(nx.degree_pearson_correlation_coefficient(G2))
+
+        if iter == 99:
+            for family in state.families:
+                if family.status == 1:
+                    independent_duration_res.append(family.independent_duration)
+                if family.status == 0:
+                    subordinate_duration_res.append(family.subordinate_duration)
+                if family.rich_duration > 0:
+                    rich_duration_res.append(family.rich_duration)
+            families = state.families
+            connection = state.connection
+
 
         # try:
         #     # community_sizes_1time.extend(community_size_analysis(1 * (state.connection > 1 / num_families)))
@@ -401,16 +453,6 @@ def main():
         exp3 = - param[0]
 
 
-
-    # if False:
-    #     community_sizes = np.array(community_sizes_3times)
-    #     community_sizes.sort()
-    #     sizes = community_sizes[::-1][num_families // 10 : num_families * 10]
-    #     ranks = np.arange(community_sizes.size)[num_families // 10 : num_families * 10]
-    #     param, cov = curve_fit(linear_fit, np.log(sizes), np.log(ranks))
-    #     power = - param[0]
-    # power = 0
-
     if trial == 0:
         # fig = plt.figure()
         # ax = fig.add_subplot(1,1,1)
@@ -445,6 +487,14 @@ def main():
         # fig.savefig(f"figs/{path}_{trial}_average_cluster.pdf")
         # plt.close('all')
 
+        independents, subordinates, wealths  = [], [], []
+        for id in range(num_families):
+            wealths.append(families[id].wealth)
+            if families[id].status == 1:
+                independents.append(id)
+            else:
+                subordinates.append(id)
+
         wealths = np.array(wealths)
 
         fig = plt.figure()
@@ -476,20 +526,11 @@ def main():
         plt.close('all')
 
         statuses = []
-        for family in state.families:
+        for family in families:
             if family.status == 1:
                 statuses.append("b")
             else:
                 statuses.append("m")
-
-        wealths = []
-        for family in state.families:
-            wealths.append(family.wealth)
-
-        wealths = np.array(wealths)
-        # wealths = np.log(wealths)
-        wealths = wealths / np.max(wealths)
-
 
         # cur_connection = 1 * (state.connection > 10 / num_families)
         # df = pd.DataFrame(cur_connection)
@@ -505,7 +546,7 @@ def main():
         # fig.savefig(f"figs/{path}_{trial}_connection_10times_{population_ratio}pc.pdf")
         # plt.close('all')
 
-        cur_connection = 1 * (state.connection > 3 / num_families)
+        # cur_connection = 1 * (state.connection > 3 / num_families)
         df = pd.DataFrame(cur_connection)
         G = nx.from_pandas_adjacency(df.T, create_using=nx.DiGraph())
 
@@ -520,21 +561,6 @@ def main():
         fig.savefig(f"figs/graph/{path}_{trial}_connection_3times_{population_ratio}pc.pdf")
         plt.close('all')
 
-
-        if len(G.edges()) < num_families:
-            cur_connection = 1 * (state.connection > 1 / num_families)
-            df = pd.DataFrame(cur_connection)
-            G = nx.from_pandas_adjacency(df.T, create_using=nx.DiGraph())
-
-            fig = plt.figure()
-            ax = fig.add_subplot(1,1,1)
-            nx.draw_networkx(G, node_size = 10, with_labels=False, ax = ax, node_color = statuses)
-            # ax.set_ylabel(r"$\lambda_i$",fontsize=18)
-            # ax.set_ylim(-0.1,1.5)
-            ax.tick_params(labelsize=14)
-            fig.tight_layout()
-            fig.savefig(f"figs/{path}_{trial}_connection_1time_{population_ratio}pc.pdf")
-            plt.close('all')
 
         fig = plt.figure()
         ax = fig.add_subplot(1,1,1)
@@ -607,7 +633,7 @@ def main():
         fig.savefig(f"figs/{path}_{trial}_per_subordinates_{population_ratio}pc.pdf")
         plt.close('all')
 
-    res = [np.median(np.array(population_ratio_res)), np.median(np.array(flow_hierarchy_res)), np.median(np.array(average_cluster_res)), np.corrcoef(wealths_res, connection_to_res)[0,1], np.median(np.array(gini_res)), np.median(np.array(core_res)), np.median(np.array(independent_duration_res)), np.median(np.array(subordinate_duration_res)), np.median(np.array(rich_duration_res)), np.median(np.array(degree_assortativity_res)), np.median(np.array(modularity_res)), np.median(np.array(num_comms_res)), exp1, exp2, exp3]
+    res = [np.median(np.array(population_ratio_res)), np.median(np.array(flow_hierarchy_res)), np.median(np.array(average_cluster_res)), np.corrcoef(wealths_res, connection_to_res)[0,1], np.median(np.array(gini_res)), np.median(np.array(core_res)), np.mean(np.array(independent_duration_res)), np.mean(np.array(subordinate_duration_res)), np.mean(np.array(rich_duration_res)), np.median(np.array(degree_assortativity_res)), np.median(np.array(modularity_res)), np.median(np.array(num_comms_res)), exp1, exp2, exp3]
 
     return res
 
@@ -615,7 +641,7 @@ num_families = 100
 iteration = 1000
 mutation = 0.01
 trial = 0
-interest = 1.2
+interest = 2.0
 decay = 0.5
 death = 1.0
 feedback  = 1.0
@@ -629,22 +655,19 @@ birth = "linear"
 distribution = "exp"
 eta_ = 3
 
-
 # for birth in [0.8, 1.0, 1.2]:
-for birth in ["log", "linear"]:
-    for num_families in [30, 100, 300]:
-        for exchange in [1, 3, 10, 30]:
-            for decay in [[0.0, 0.1, 0.3][int(sys.argv[1]) % 3]]:
-                for interest in [[1.1, 1.2, 1.5, 2.0, 3.0][int(sys.argv[1]) // 4 % 5]]:
-                    df = pd.DataFrame(index = ["exchange", "decay", "exploration",  "eta", "feedback", "epsilon", "mutation", "interest", "num_families", "distribution", "birth", "population_ratio", "hierarchy", "cluster_index", "corrcoef", "gini", "core", "independent_duration", "subordinate_duration", "rich_duration", "assortativity", "modularity", "num community", "exp1", "exp2", "exp3"])
-                    eta = eta_ / num_families
-                    path = f"dist{distribution}_birth{birth}_{num_families}fam_{exchange}exchange_d{round(decay * 100)}pc_ex{round(exploration * 100)}pc_eta{round(eta_ * 100)}pc_f{round(feedback * 100)}pc_epsilon{round(epsilon * 100000)}pm_mu{round(mutation * 1000)}pm_interest{round(interest * 10)}pd"
-                    for trial in range(30):
-                        try:
-                            res = main()
-                            params = [exchange, decay, exploration, eta, feedback, epsilon, mutation, interest, num_families, distribution, birth]
-                            params.extend(res)
-                            df[len(df.columns)] = params
-                        except:
-                            pass
-                    df.to_csv(f"res/res_{path}.csv")
+for num_families in [30, 100, 300]:
+    for exchange in [[1, 3, 10, 30, 100][int(sys.argv[1]) % 5]]:
+        for interest in [[1.1, 1.2, 1.5, 2.0, 3.0][int(sys.argv[1]) // 5 % 5]]:
+            df_res = pd.DataFrame(index = ["exchange", "decay", "exploration",  "eta", "feedback", "epsilon", "mutation", "interest", "num_families", "distribution", "population_ratio", "hierarchy", "cluster_index", "corrcoef", "gini", "core", "independent_duration", "subordinate_duration", "rich_duration", "assortativity", "modularity", "num community", "exp1", "exp2", "exp3"])
+            eta = eta_ / num_families
+            path = f"dist{distribution}_birth{birth}_{num_families}fam_{exchange}exchange_d{round(decay * 100)}pc_ex{round(exploration * 100)}pc_eta{round(eta_ * 100)}pc_f{round(feedback * 100)}pc_epsilon{round(epsilon * 100000)}pm_mu{round(mutation * 1000)}pm_interest{round(interest * 10)}pd"
+            for trial in range(30):
+                try:
+                    res = main()
+                    params = [exchange, decay, exploration, eta, feedback, epsilon, mutation, interest, num_families, distribution]
+                    params.extend(res)
+                    df_res[len(df_res.columns)] = params
+                except:
+                    pass
+            df_res.to_csv(f"res/res_{path}.csv")

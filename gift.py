@@ -113,7 +113,8 @@ def generation(families, connection):
 
     else:
         for e in range(exchange):
-            independents = [family.family_id for family in families if family.status == 1]
+            # independents = [family.family_id for family in families if family.status == 1]
+            independents = [family.family_id for family in families]
             random.shuffle(independents)
             if len(independents) > 1:
                 for doner_id in independents:

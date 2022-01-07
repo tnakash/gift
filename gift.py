@@ -506,50 +506,27 @@ def main():
     if True:
         community_sizes = np.array(connection_to_res2)
         community_sizes.sort()
-        sizes = community_sizes[::-1][num_families // 10 : num_families * 10]
-        ranks = np.arange(community_sizes.size)[num_families // 10 : num_families * 10]
+        sizes = community_sizes[::-1][num_families // 10 * num_states: num_families * 10 * num_states]
+        ranks = np.arange(community_sizes.size)[num_families // 10 * num_states : num_families * 10 * num_states]
         param, cov = curve_fit(linear_fit, sizes, np.log(ranks))
         exp2 = - param[0]
 
         community_sizes = np.array(connection_to_res)
         community_sizes.sort()
-        sizes = community_sizes[::-1][num_families // 10 : num_families * 10]
-        ranks = np.arange(community_sizes.size)[num_families // 10 : num_families * 10]
+        sizes = community_sizes[::-1][num_families // 10  * num_states: num_families * 10 * num_states]
+        ranks = np.arange(community_sizes.size)[num_families // 10  * num_states: num_families * 10 * num_states]
         param, cov = curve_fit(linear_fit, sizes, np.log(ranks))
         exp1 = - param[0]
 
         community_sizes = np.array(wealths_res)
         community_sizes.sort()
-        sizes = community_sizes[::-1][num_families // 10 : num_families * 10]
-        ranks = np.arange(community_sizes.size)[num_families // 10 : num_families * 10]
+        sizes = community_sizes[::-1][num_families // 10  * num_states: num_families * 10 * num_states]
+        ranks = np.arange(community_sizes.size)[num_families // 10  * num_states: num_families * 10 * num_states]
         param, cov = curve_fit(linear_fit, sizes, np.log(ranks))
         exp3 = - param[0]
 
 
     if trial == 0:
-        families, connection = families_, connection_
-        fig = plt.figure()
-        ax = fig.add_subplot(1,1,1)
-        ax.plot(flow_hierarchy_res)
-        # ax.set_yscale('log')
-        # ax.set_ylabel(r"$\lambda_i$",fontsize=18)
-        # ax.set_ylim(-0.1,1.5)
-        ax.tick_params(labelsize=14)
-        fig.tight_layout()
-        fig.savefig(f"figs/{path}_{trial}_flow_hierarchy.pdf")
-        plt.close('all')
-        #
-        # fig = plt.figure()
-        # ax = fig.add_subplot(1,1,1)
-        # ax.plot(average_cluster_res)
-        # # ax.set_yscale('log')
-        # # ax.set_ylabel(r"$\lambda_i$",fontsize=18)
-        # # ax.set_ylim(-0.1,1.5)
-        # ax.tick_params(labelsize=14)
-        # fig.tight_layout()
-        # fig.savefig(f"figs/{path}_{trial}_average_cluster.pdf")
-        # plt.close('all')
-
         independents, subordinates, wealths  = [], [], []
         for id in range(num_families):
             wealths.append(families[id].wealth)
@@ -630,7 +607,7 @@ def main():
 
         fig = plt.figure()
         ax = fig.add_subplot(1,1,1)
-        ax.hist(connection_to_res, bins = 50)
+        ax.hist(connection_to_res, bins = 50, density = 1)
         ax.set_xlabel("connection_to",fontsize=18)
         # ax.set_ylabel(r"$\lambda_i$",fontsize=18)
         # ax.set_ylim(-0.1,1.5)
@@ -641,7 +618,7 @@ def main():
 
         fig = plt.figure()
         ax = fig.add_subplot(1,1,1)
-        ax.hist(connection_to_res, bins = 50)
+        ax.hist(connection_to_res, bins = 50, density = 1)
         ax.set_xlabel("connection_to",fontsize=18)
         ax.set_yscale('log')
         # ax.set_ylabel(r"$\lambda_i$",fontsize=18)
@@ -654,7 +631,7 @@ def main():
 
         fig = plt.figure()
         ax = fig.add_subplot(1,1,1)
-        ax.hist(connection_to_res2, bins = 50)
+        ax.hist(connection_to_res2, bins = 50, density = 1)
         ax.set_xlabel("connection_to",fontsize=18)
         # ax.set_ylabel(r"$\lambda_i$",fontsize=18)
         # ax.set_ylim(-0.1,1.5)
@@ -665,7 +642,7 @@ def main():
 
         fig = plt.figure()
         ax = fig.add_subplot(1,1,1)
-        ax.hist(connection_to_res2, bins = 50)
+        ax.hist(connection_to_res2, bins = 50, density = 1)
         ax.set_xlabel("connection_to",fontsize=18)
         ax.set_yscale('log')
         # ax.set_ylabel(r"$\lambda_i$",fontsize=18)
@@ -678,7 +655,7 @@ def main():
 
         fig = plt.figure()
         ax = fig.add_subplot(1,1,1)
-        ax.hist(wealths_res, bins = 50)
+        ax.hist(wealths_res, bins = 50, density = 1)
         ax.set_xlabel("wealth",fontsize=18)
         ax.set_yscale('log')
         # ax.set_ylabel(r"$\lambda_i$",fontsize=18)
@@ -690,8 +667,9 @@ def main():
 
         fig = plt.figure()
         ax = fig.add_subplot(1,1,1)
-        ax.hist(num_subordinates_res, bins = 10)
+        ax.hist(num_subordinates_res, bins = 10, density = 1)
         ax.set_xlabel("subordinates",fontsize=18)
+        ax.set_yscale('log')
         # ax.set_ylabel(r"$\lambda_i$",fontsize=18)
         # ax.set_ylim(-0.1,1.5)
         ax.tick_params(labelsize=14)
@@ -815,7 +793,7 @@ eta_ = 3
 
 # for birth in [0.8, 1.0, 1.2]:
 for feedback in [0.3, 0.5, 1.0]:
-    for num_states in [1, 10, 100]:
+    for num_states in [1, 10, 30]:
         for exchange in [[1, 3, 10, 30, 100][int(sys.argv[1]) % 5]]:
             for interest in [[1.1, 1.2, 1.5, 2.0, 3.0][int(sys.argv[1]) // 5 % 5]]:
                 df_res = pd.DataFrame(index = ["exchange", "decay", "exploration",  "eta", "feedback", "epsilon", "mutation", "interest", "num_states", "num_families", "distribution", "population_ratio", "inheritance", "hierarchy", "cluster_index", "corrcoef", "independent_duration", "subordinate_duration", "rich_duration", "exp1", "exp2", "exp3"])

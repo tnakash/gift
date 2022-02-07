@@ -191,35 +191,35 @@ def generation(families, connection):
                                 owner.subordinates.append(family)
             connection = connection / np.sum(connection, axis = 0)
 
-            while True:
-                counter = 0
-                for family in families:
-                    if family.status == 0 and family.wealth > 0:
-                        count = 0
-                        for debt in family.debt:
-                            owner = debt[0]
-                            debt_wealth = debt[1]
-                            if family.wealth >= debt_wealth:
-                                owner.wealth += debt_wealth
-                                connection[owner.family_id, family.family_id] += eta
-                                if family in owner.subordinates:
-                                    owner.subordinates.remove(family)
-                                family.wealth -= debt_wealth
-                                count += 1
-                            else:
-                                owner.wealth += family.wealth
-                                connection[owner.family_id, family.family_id] += eta
-                                debt[1] -= family.wealth
-                                family.wealth = 0
-                                break
-                        family.debt = family.debt[count:]
-                        if len(family.debt) == 0:
-                            family.status = 1
-                        counter += 1
-                if counter == 0:
-                    break
+        while True:
+            counter = 0
+            for family in families:
+                if family.status == 0 and family.wealth > 0:
+                    count = 0
+                    for debt in family.debt:
+                        owner = debt[0]
+                        debt_wealth = debt[1]
+                        if family.wealth >= debt_wealth:
+                            owner.wealth += debt_wealth
+                            connection[owner.family_id, family.family_id] += eta
+                            if family in owner.subordinates:
+                                owner.subordinates.remove(family)
+                            family.wealth -= debt_wealth
+                            count += 1
+                        else:
+                            owner.wealth += family.wealth
+                            connection[owner.family_id, family.family_id] += eta
+                            debt[1] -= family.wealth
+                            family.wealth = 0
+                            break
+                    family.debt = family.debt[count:]
+                    if len(family.debt) == 0:
+                        family.status = 1
+                    counter += 1
+            if counter == 0:
+                break
+        connection = connection / np.sum(connection, axis = 0)
 
-    connection = connection / np.sum(connection, axis = 0)
     statuses = []
     num_subordinates =  []
     wealths = []
@@ -265,8 +265,6 @@ def generation(families, connection):
     return families, connection, statuses, num_subordinates, wealths, inheritances, connection_to, independent_duration, subordinate_duration, rich_duration, gift_ratios
 
 # families, connection = state.families, state.connection
-
-
 
 def reproduction(families, connection):
     # wealths = [1 + family.wealth * feedback for family in families]
@@ -330,33 +328,127 @@ def reproduction(families, connection):
                 for j in range(i):
                     # connection[count, count - j - 1] = 1 / num_families / num_children
                     # connection[count - j - 1, count] = 1 / num_families / num_children
-                    connection[count, count - j - 1] = 1 / len(families)
-                    connection[count - j - 1, count] = 1 / len(families)
+                    connection[count, count - j - 1] = eta
+                    connection[count - j - 1, count] = eta
                 count += 1
 
-
-    # for family_id in range(len(families)):
-    #     if births[family_id] == 0:
-    #         family == families[family_id]
-    #         for subordinate in family.subordinates:
-    #             for debt in subordinate.debt:
-    #                 if debt[0] == family:
-    #                     subordinate.debt.remove(debt)
-    #                     if len(subordinate.debt) == 0:
-    #                         subordinate.status = 1
-    #                     break
-    #         for debt in family.debt:
-    #             boss = debt[0]
-    #             if family in boss.subordinates:
-    #                 boss.subordinates.remove(family)
-
-    # connection = np.delete(connection,list(range(num_families)), 0)
-    # connection = np.delete(connection,list(range(num_families)), 1)
     connection = connection[len(families):, len(families):]
     connection = connection / np.sum(connection, axis = 0)
     families = next_families[:]
 
     return families, connection
+
+def gini2(y):
+    y.sort()
+    n = len(y)
+    nume = 0
+    for i in range(n):
+        nume = nume + (i+1)*y[i]
+
+    deno = n*sum(y)
+    return ((2*nume)/deno - (n+1)/(n))*(n/(n-1))
+
+def gini_plot(families, connection):
+    wealth_ginis, connection_ginis = [], []
+    for i in range(len(families)):
+        families[i].family_id = i
+    for e in range(exchange):
+        independents = [family.family_id for family in families if family.status == 1]
+        # independents = [family.family_id for family in families]
+        random.shuffle(independents)
+        if len(independents) > 1:
+            for doner_id in independents:
+                doner = families[doner_id]
+                if random.random() > exploration:
+                    weights = connection[independents, doner_id]
+                    if np.sum(weights) > 0:
+                        recipient_id = random.choices(independents, weights = weights, k= 1)[0]
+                    else:
+                        recipient_id = random.choice(list(set(independents) - set([doner_id])))
+                else:
+                    recipient_id = random.choice(list(set(independents) - set([doner_id])))
+                if doner_id != recipient_id and doner.wealth * doner.gift_ratio > epsilon:
+                    recipient = families[recipient_id]
+                    doner.wealth -= epsilon
+                    recipient.wealth +=  doner.wealth * doner.gift_ratio
+                    recipient.debt.append([doner, doner.wealth * (interest - 1) * doner.gift_ratio])
+                    doner.give = doner.wealth * doner.gift_ratio
+                    recipient.given += doner.wealth * doner.gift_ratio
+                    doner.wealth = doner.wealth * (1 - doner.gift_ratio)
+                    connection[recipient_id, doner_id] += eta
+
+        for family in families:
+            if birth == "linear":
+                family.earned = (1 + math.log(1 + family.wealth * feedback)) / exchange
+            else:
+                family.earned = (1 + family.wealth * feedback) / exchange
+            # production = 1 + family.wealth * feedback
+        for family in families:
+            production = family.earned
+            if family.status == 1:
+                family.wealth += production
+            else:
+                num_boss = len(family.debt)
+                family.wealth += production / 2
+                for j in range(num_boss):
+                    family.debt[j][0].wealth += production / 2 / num_boss
+
+        for family in families:
+            family.wealth += family.give - family.given
+            family.give = 0
+            family.given = 0
+
+        family_ids = list(range(len(families)))
+        random.shuffle(family_ids)
+        for family_id in family_ids:
+            family = families[family_id]
+            if len(family.debt) == 0:
+                family.status = 1
+                continue
+            else:
+                count = 0
+                for debt in family.debt:
+                    owner = debt[0]
+                    debt_wealth = debt[1]
+                    if family.wealth >= debt_wealth:
+                        owner.wealth += debt_wealth
+                        connection[owner.family_id, family_id] += eta
+                        if family in owner.subordinates:
+                            owner.subordinates.remove(family)
+                        family.wealth -= debt_wealth
+                        count += 1
+                    else:
+                        owner.wealth += family.wealth
+                        connection[owner.family_id, family_id] += eta
+                        debt[1] -= family.wealth
+                        family.wealth = 0
+                        break
+                family.debt = family.debt[count:]
+                if len(family.debt) == 0:
+                    family.status = 1
+                else:
+                    family.status = 0
+                    for debt in family.debt:
+                        owner = debt[0]
+                        if not family in owner.subordinates:
+                            owner.subordinates.append(family)
+        connection = connection / np.sum(connection, axis = 0)
+
+        wealth_ls = [family.wealth for family in families]
+        connection_ls = np.sum(connection, axis = 1).tolist()
+        wealth_ginis.append(gini2(wealth_ls))
+        connection_ginis.append(gini2(connection_ls))
+
+    fig = plt.figure()
+    ax = fig.add_subplot(1,1,1)
+    ax.plot(wealth_ginis, color = "b")
+    ax.plot(connection_ginis, color = "orange")
+    ax.set_xlabel("exchange",fontsize=18)
+    ax.set_ylabel("gini coef.",fontsize=18)
+    ax.tick_params(labelsize=14)
+    fig.tight_layout()
+    fig.savefig(f"figs/{path}_{trial}_gini.pdf")
+    plt.close('all')
 
 
 # families, connection = state.families, state.connection
@@ -377,6 +469,9 @@ def main():
     independent_duration_res, subordinate_duration_res, rich_duration_res, inheritance_res = [], [], [], []
     gift_ratio_plot , inheritance_plot = [], []
     duplicates = 0
+    flag = 0
+    # exp1_ls, exp2_ls, exp3_ls = [], [], []
+    # connection_to2_ls, connection_to_ls, wealths_ls = [], [], []
     for iter in range(iteration):
         remove_ls, duplicate_ls = [], []
         for state in states:
@@ -396,6 +491,10 @@ def main():
                 population_ratio = int(round(sum(statuses) / len(statuses), 2) * 100)
                 population_ratio_res.append(population_ratio)
                 gift_ratio_res.extend(gift_ratios)
+                # if connection_to.max() > 2 * num_families:
+                #     flag = 1
+                #     print(len(state.families))
+                #     break
 
                 cur_connection = 1 * (state.connection > eta)
                 df = pd.DataFrame(cur_connection)
@@ -428,6 +527,8 @@ def main():
             else:
                 state.families, state.connection = separation(state.families, state.connection)
 
+        # if flag == 1:
+        #     break
         for state in remove_ls:
             states.remove(state)
         for state in duplicate_ls:
@@ -478,7 +579,9 @@ def main():
         wealth_power = - param[0]
 
 
-    if trial < 3:
+    if trial < 10:
+        if exchange > 0 and trial == 0 and interest == 1.1:
+            gini_plot(state.families, state.connection)
         independents, subordinates, wealths  = [], [], []
         for id in range(num_families):
             wealths.append(families[id].wealth)
@@ -578,7 +681,7 @@ def main():
         connection_to_res = np.array(connection_to_res)
         fig = plt.figure()
         ax = fig.add_subplot(1,1,1)
-        ax.hist(connection_to_res[connection_to_res > 3], bins = 50, density = 1)
+        ax.hist(connection_to_res[connection_to_res > 1], bins = 50, density = 1)
         ax.set_xlabel("connection_to",fontsize=18)
         ax.set_xscale('log')
         ax.set_yscale('log')
@@ -605,7 +708,7 @@ def main():
 
         fig = plt.figure()
         ax = fig.add_subplot(1,1,1)
-        ax.hist(wealths_res[wealths_res > 10], bins = 50, density = 1)
+        ax.hist(wealths_res[wealths_res > 1], bins = 50, density = 1)
         ax.set_xlabel("wealth",fontsize=18)
         ax.set_xscale('log')
         ax.set_yscale('log')
@@ -650,18 +753,19 @@ birth = "linear"
 distribution = "exp"
 eta_ = 3
 
-for interest in [[1.0, 3.0], [1.1, 2.0], [1.2, 1.5]][int(sys.argv[1]) // 9 % 3]:
-    # for exchange in [[1, 2, 3, 5, 8, 10, 20, 30, 50, 80, 100, 200, 300][int(sys.argv[1]) % 3]]:
-    for exchange in [[1, 30], [2, 20], [3, 10], [5, 8], [50], [80], [100], [200], [300]][int(sys.argv[1]) % 9]:
-        df_res = pd.DataFrame(index = ["exchange", "decay", "exploration",  "eta", "feedback", "epsilon", "mutation", "interest", "num_states", "num_families", "distribution", "population_ratio", "inheritance", "hierarchy", "cluster_index", "corrcoef", "independent_duration", "subordinate_duration", "rich_duration", "connection exp", "connection power", "wealth exp", "wealth power", "gift_ratio"])
-        eta = eta_ / 100
-        path = f"dist{distribution}_birth{birth}_{num_states}states_{num_families}fam_{exchange}exchange_d{round(decay * 100)}pc_ex{round(exploration * 100)}pc_eta{round(eta_ * 100)}pc_f{round(feedback * 100)}pc_epsilon{round(epsilon * 100000)}pm_mu{round(mutation * 1000)}pm_interest{round(interest * 10)}pd"
-        for trial in range(100):
-            try:
-                res = main()
-                params = [exchange, decay, exploration, eta, feedback, epsilon, mutation, interest, num_states, num_families, distribution]
-                params.extend(res)
-                df_res[len(df_res.columns)] = params
-            except:
-                pass
-        df_res.to_csv(f"res/res_{path}.csv")
+for num_families in [30, 50, 100]:
+    for interest in [[1.0, 3.0], [1.1, 2.0], [1.2, 1.5]][int(sys.argv[1]) // 9 % 3]:
+        # for exchange in [[1, 2, 3, 5, 8, 10, 20, 30, 50, 80, 100, 200, 300][int(sys.argv[1]) % 3]]:
+        for exchange in [[0, 50], [1, 30], [2, 20], [3, 10], [5, 8], [80], [100], [200], [300]][int(sys.argv[1]) % 9]:
+            df_res = pd.DataFrame(index = ["exchange", "decay", "exploration",  "eta", "feedback", "epsilon", "mutation", "interest", "num_states", "num_families", "distribution", "population_ratio", "inheritance", "hierarchy", "cluster_index", "corrcoef", "independent_duration", "subordinate_duration", "rich_duration", "connection exp", "connection power", "wealth exp", "wealth power", "gift_ratio"])
+            eta = eta_ / 100
+            path = f"dist{distribution}_birth{birth}_{num_states}states_{num_families}fam_{exchange}exchange_d{round(decay * 100)}pc_ex{round(exploration * 100)}pc_eta{round(eta_ * 100)}pc_f{round(feedback * 100)}pc_epsilon{round(epsilon * 100000)}pm_mu{round(mutation * 1000)}pm_interest{round(interest * 10)}pd"
+            for trial in range(100):
+                try:
+                    res = main()
+                    params = [exchange, decay, exploration, eta, feedback, epsilon, mutation, interest, num_states, num_families, distribution]
+                    params.extend(res)
+                    df_res[len(df_res.columns)] = params
+                except:
+                    pass
+            df_res.to_csv(f"res/res_{path}.csv")

@@ -6,14 +6,10 @@ import os
 import sys
 import math
 import random
-from collections import Counter
 import networkx as nx
-from itertools import islice
 from scipy.optimize import curve_fit
 import networkx.algorithms.community as nx_comm
-# to install networkx 2.0 compatible version of python-louvain use:
-# pip install -U git+https://github.com/taynaud/python-louvain.git@networkx2
-from community import community_louvain
+
 
 
 if int(sys.argv[1])==0:
@@ -43,33 +39,11 @@ class Family:
         self.status = status
         self.debt = debt
         self.subordinates = subordinates
-        self.earned = 0
         self.give = 0
         self.given = 0
         self.independent_duration = independent_duration
         self.subordinate_duration = subordinate_duration
         self.rich_duration = rich_duration
-
-def community_size_analysis(cur_connection):
-    df = pd.DataFrame(cur_connection)
-    G = nx.from_pandas_adjacency(df.T, create_using=nx.DiGraph())
-
-    k = num_families
-    comp = girvan_newman(G)
-    all_communities = []
-    for communities in islice(comp, k):
-        all_communities.append(list(sorted(c) for c in communities))
-        if len(all_communities[-1]) == num_families:
-            break
-
-    unique_communities = []
-    for community in all_communities:
-        for com in community:
-            if com not in unique_communities:
-                unique_communities.append(com)
-    community_sizes = np.array([len(community) for community in unique_communities])
-
-    return community_sizes
 
 
 def separation(families, connection):
@@ -91,18 +65,17 @@ def separation(families, connection):
 
     return families, connection
 
-# families, connection = state.families, state.connection
-
 
 def generation(families, connection):
     for i in range(len(families)):
         families[i].family_id = i
     if exchange == 0:
         for family in families:
-            if birth == "linear":
-                family.wealth += 1 + math.log(1 + family.wealth * feedback)
-            else:
-                family.wealth += 1 + family.wealth * feedback
+            family.wealth += 1 + math.log(1 + family.wealth * feedback)
+            # if birth == "linear":
+            #     family.wealth += 1 + math.log(1 + family.wealth * feedback)
+            # else:
+            #     family.wealth += 1 + family.wealth * feedback
 
     else:
         for e in range(exchange):
@@ -113,11 +86,7 @@ def generation(families, connection):
                 for doner_id in independents:
                     doner = families[doner_id]
                     if random.random() > exploration:
-                        weights = connection[independents, doner_id]
-                        if np.sum(weights) > 0:
-                            recipient_id = random.choices(independents, weights = weights, k= 1)[0]
-                        else:
-                            recipient_id = random.choice(list(set(independents) - set([doner_id])))
+                        recipient_id = random.choices(independents, weights = connection[independents, doner_id], k= 1)[0]
                     else:
                         recipient_id = random.choice(list(set(independents) - set([doner_id])))
                     if doner_id != recipient_id and doner.wealth * doner.gift_ratio > epsilon:
@@ -130,18 +99,9 @@ def generation(families, connection):
                         doner.wealth = doner.wealth * (1 - doner.gift_ratio)
                         connection[recipient_id, doner_id] += eta
 
-            # for family in families:
-            #     print(family.status, family.wealth, family.give, family.given, family.debt)
-            # exploration
 
             for family in families:
-                if birth == "linear":
-                    family.earned = (1 + math.log(1 + family.wealth * feedback)) / exchange
-                else:
-                    family.earned = (1 + family.wealth * feedback) / exchange
-                # production = 1 + family.wealth * feedback
-            for family in families:
-                production = family.earned
+                production = (1 + math.log(1 + family.wealth * feedback)) / exchange
                 if family.status == 1:
                     family.wealth += production
                 else:
@@ -161,7 +121,6 @@ def generation(families, connection):
                 family = families[family_id]
                 if len(family.debt) == 0:
                     family.status = 1
-                    continue
                 else:
                     count = 0
                     for debt in family.debt:
@@ -189,36 +148,36 @@ def generation(families, connection):
                             owner = debt[0]
                             if not family in owner.subordinates:
                                 owner.subordinates.append(family)
-            connection = connection / np.sum(connection, axis = 0)
+            # connection = connection / np.sum(connection, axis = 0)
 
-        while True:
-            counter = 0
-            for family in families:
-                if family.status == 0 and family.wealth > 0:
-                    count = 0
-                    for debt in family.debt:
-                        owner = debt[0]
-                        debt_wealth = debt[1]
-                        if family.wealth >= debt_wealth:
-                            owner.wealth += debt_wealth
-                            connection[owner.family_id, family.family_id] += eta
-                            if family in owner.subordinates:
-                                owner.subordinates.remove(family)
-                            family.wealth -= debt_wealth
-                            count += 1
-                        else:
-                            owner.wealth += family.wealth
-                            connection[owner.family_id, family.family_id] += eta
-                            debt[1] -= family.wealth
-                            family.wealth = 0
-                            break
-                    family.debt = family.debt[count:]
-                    if len(family.debt) == 0:
-                        family.status = 1
-                    counter += 1
-            if counter == 0:
-                break
-        connection = connection / np.sum(connection, axis = 0)
+            while True:
+                counter = 0
+                for family in families:
+                    if family.status == 0 and family.wealth > 0:
+                        count = 0
+                        for debt in family.debt:
+                            owner = debt[0]
+                            debt_wealth = debt[1]
+                            if family.wealth >= debt_wealth:
+                                owner.wealth += debt_wealth
+                                connection[owner.family_id, family.family_id] += eta
+                                if family in owner.subordinates:
+                                    owner.subordinates.remove(family)
+                                family.wealth -= debt_wealth
+                                count += 1
+                            else:
+                                owner.wealth += family.wealth
+                                connection[owner.family_id, family.family_id] += eta
+                                debt[1] -= family.wealth
+                                family.wealth = 0
+                                break
+                        family.debt = family.debt[count:]
+                        if len(family.debt) == 0:
+                            family.status = 1
+                        counter += 1
+                if counter == 0:
+                    break
+    connection = connection / np.sum(connection, axis = 0)
 
     statuses = []
     num_subordinates =  []
@@ -269,7 +228,7 @@ def generation(families, connection):
 def reproduction(families, connection):
     # wealths = [1 + family.wealth * feedback for family in families]
     # births = Counter(random.choices(list(range(num_families)), weights = wealths, k = num_families))
-    births = [np.random.poisson(lam = 1 + family.wealth * feedback) for family in families]
+    births = [np.random.poisson(lam = 1 + math.log(1 + family.wealth * feedback)) for family in families]
     count = len(families)
     next_families = []
 
@@ -279,7 +238,7 @@ def reproduction(families, connection):
         if num_children > 0:
             weights = np.exp(- family.inheritance * np.array(range(num_children)))
             weights = weights / np.sum(weights)
-            weights_ori = np.copy(weights)
+            weights_ori = weights[:]
             if len(weights) > 1:
                 for i in range(len(weights)):
                     if i > 0:
@@ -305,7 +264,15 @@ def reproduction(families, connection):
                             debts.remove(debt)
 
                 inheritance = family.inheritance + random.gauss(0, mutation)
-                next_families.append(Family(count - len(families), cur_wealth, inheritance, 1.0, 1 * (len(cur_debts) == 0), cur_debts, cur_subordinates, family.independent_duration, family.subordinate_duration, family.rich_duration))
+                gift_ratio = family.gift_ratio + random.gauss(0, mutation)
+                if inheritance < 0:
+                    inheritance = 0.01
+                if gift_ratio < 0:
+                    gift_ratio = 0.0
+                elif gift_ratio > 1:
+                    gift_ratio = 1.0
+                gift_ratio = family.gift_ratio
+                next_families.append(Family(count - len(families), cur_wealth, inheritance, gift_ratio, 1 * (len(cur_debts) == 0), cur_debts, cur_subordinates, family.independent_duration, family.subordinate_duration, family.rich_duration))
                 for subordinate in cur_subordinates:
                     for debt in subordinate.debt:
                         if debt[0] == family:
@@ -453,6 +420,7 @@ def gini_plot(families, connection):
 
 # families, connection = state.families, state.connection
 
+
 def main():
     states = []
     for j in range(num_states):
@@ -579,8 +547,8 @@ def main():
         wealth_power = - param[0]
 
 
-    if trial < 10:
-        if exchange > 0 and trial == 0 and interest == 1.1:
+    if trial < 3:
+        if exchange > 0:
             gini_plot(state.families, state.connection)
         independents, subordinates, wealths  = [], [], []
         for id in range(num_families):
@@ -735,8 +703,9 @@ def main():
 
     return res
 
+
 num_states = 30
-num_families = 50
+num_families = 100
 iteration = 1000
 mutation = 0.03
 trial = 0

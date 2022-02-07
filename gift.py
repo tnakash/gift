@@ -314,8 +314,8 @@ def reproduction(families, connection):
                     boss = debt[0]
                     boss.subordinates = list(set(boss.subordinates) - set([family]) | set([next_families[-1]]))
 
-                # arr_to = connection[family_id] * np.random.normal(1.0, mutation, count) * weights_ori[i]
-                arr_to = connection[family_id] * np.random.normal(1.0, 0.01, count)
+                arr_to = connection[family_id] * np.random.normal(1.0, 0.01, count) * weights_ori[i]
+                # arr_to = connection[family_id] * np.random.normal(1.0, 0.01, count)
                 connection = np.insert(connection, count, arr_to, axis = 0)
                 arr_from = connection[:, family_id] * np.random.normal(1.0, 0.01, count + 1)
                 connection = np.insert(connection, count, arr_from, axis = 1)

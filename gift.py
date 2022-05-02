@@ -170,7 +170,10 @@ def generation(families, connection):
     #     if counter == 0:
     #         break
     connection = connection / np.sum(connection, axis = 0)
-    payback = 1  - len(unpayback_ls) / len(donation_ls)
+    if len(donation_ls) > 0:
+        payback = 1  - len(unpayback_ls) / len(donation_ls)
+    else:
+        payback = 0
 
     statuses = [family.status for family in families]
     wealths = [family.wealth for family in families]
@@ -193,7 +196,7 @@ def reproduction(families, connection):
     for family in families:
         if family.lifetime == family.counter:
             remove_ls.append(family)
-            num_children = np.random.poisson(lam = 1 + family.wealth * feedback)
+            num_children = np.random.poisson(lam = 1 + math.log10(1 + family.wealth))
             # num_children = 1 + 1 * (random.random() < 0.5)
             # num_children = np.random.poisson(lam = 1 + family.wealth)
             # print(num_children)
@@ -294,7 +297,8 @@ def main():
         families = [Family(i, max(1, np.random.poisson(lam = exchange)), 1.0, inheritance, 1, [], [], 1, 0, 0) for i in range(num_families)]
         # connection[i, j] represents the weaight of the pass from j to i.
 
-        connection = np.random.rand(num_families, num_families)
+        # connection = np.random.rand(num_families, num_families)
+        connection = np.ones([num_families, num_families])
         for i in range(num_families):
             connection[i, i] = 0
         connection = connection / np.sum(connection, axis = 0)
@@ -302,10 +306,11 @@ def main():
 
     independent_duration_res, subordinate_duration_res, rich_duration_res = [], [], []
     inheritance_series, corelation_series, payback_series = [], [], []
-    cluster_series, flow_hierarchy_series, wealth_gini_series, connectivity_gini_series, wealth_exp_series, connectivity_exp_series, population_ratio_series = [], [], [], [], [], [], []
+    wealth_ls, connection_to_ls = [], []
+    cluster_series, flow_hierarchy_series, wealth_gini_series, connectivity_gini_series, wealth_exp_series, connectivity_power_series, wealth_power_series, connectivity_exp_series, population_ratio_series = [], [], [], [], [], [], [], [], []
     for iter in range(iteration):
+    # for iter in range(30):
         remove_ls, duplicate_ls = [], []
-        wealth_ls, connection_to_ls = [], []
         inheritance_ls, corelation_res, payback_res = [], [], []
         cluster_res, flow_hierarchy_res, wealth_gini_res, connectivity_gini_res, wealth_exp_res, connectivity_exp_res, population_ratio_res = [], [], [], [], [], [], []
         for state in states:
@@ -314,8 +319,9 @@ def main():
             connection_to = np.sum(state.connection, axis = 1).tolist()
             state.families, state.connection, independent_duration, subordinate_duration, rich_duration = reproduction(state.families, state.connection)
             inheritance_ls.extend(inheritances)
-            wealth_ls.extend(wealths)
-            connection_to_ls.extend(connection_to)
+            if iter > iteration - 100:
+                wealth_ls.extend(wealths)
+                connection_to_ls.extend(connection_to)
 
             independent_duration_res.extend(independent_duration)
             subordinate_duration_res.extend(subordinate_duration)
@@ -367,20 +373,6 @@ def main():
         population_ratio_series.append(mean(population_ratio_res))
         payback_series.append(mean(payback_res))
 
-        community_sizes = np.array(connection_to_ls)
-        community_sizes.sort()
-        sizes = community_sizes[::-1][num_families // 10: num_families * 10]
-        ranks = np.arange(community_sizes.size)[num_families // 10: num_families * 10]
-        param, cov = curve_fit(linear_fit, sizes, np.log(ranks))
-        connectivity_exp_series.append(- param[0])
-
-        community_sizes = np.array(wealth_ls)
-        community_sizes.sort()
-        sizes = community_sizes[::-1][num_families // 10: num_families * 10]
-        ranks = np.arange(community_sizes.size)[num_families // 10: num_families * 10]
-        param, cov = curve_fit(linear_fit, sizes, np.log(ranks))
-        wealth_exp_series.append(- param[0])
-
         states = list(set(states) - set(remove_ls))
         # for state in remove_ls:
         #     states.remove(state)
@@ -408,45 +400,30 @@ def main():
             random.shuffle(states)
             states = states[:num_states]
 
+    if iter == iteration - 1:
+        community_sizes = np.array(connection_to_ls)
+        community_sizes.sort()
+        max_val = min(len(community_sizes[community_sizes > 0]), num_families * 100)
+        sizes = community_sizes[::-1][num_families // 10: max_val]
+        ranks = np.arange(community_sizes.size)[num_families // 10: max_val]
+        param, cov = curve_fit(linear_fit, np.log(sizes), ranks)
+        connectivity_exp = - 1 / param[0]
+        param, cov = curve_fit(linear_fit, np.log(sizes), np.log(ranks))
+        connectivity_power = - param[0]
+
+        community_sizes = np.array(wealth_ls)
+        community_sizes.sort()
+        max_val = min(len(community_sizes[community_sizes > 0]), num_families * 300)
+        sizes = community_sizes[::-1][num_families // 10: max_val]
+        ranks = np.arange(community_sizes.size)[num_families // 10: max_val]
+        param, cov = curve_fit(linear_fit, np.log(sizes), ranks)
+        wealth_exp = - 1 / param[0]
+        param, cov = curve_fit(linear_fit, np.log(sizes), np.log(ranks))
+        wealth_power = - param[0]
+
     last = min (500, 5 * exchange)
 
-    wealth_gini_series = np.array(wealth_gini_series)
-    wealth_gini_relaxation = np.where(wealth_gini_series > np.percentile(wealth_gini_series[-last:], 25))[0].min()
-    connectivity_gini_series = np.array(connectivity_gini_series)
-    connectivity_gini_relaxation = np.where(connectivity_gini_series >np.percentile(connectivity_gini_series[-last:], 25))[0].min()
-
-    wealth_exp_series = np.array(wealth_exp_series)
-    wealth_exp_relaxation = np.where(wealth_exp_series < np.percentile(wealth_exp_series[-last:], 75))[0].min()
-    connectivity_exp_series = np.array(connectivity_exp_series)
-    connectivity_exp_relaxation = np.where(connectivity_exp_series < np.percentile(connectivity_exp_series[-last:], 75))[0].min()
-
-    gini_relaxation = max(wealth_gini_relaxation, connectivity_gini_relaxation)
-    exp_relaxation  = max(wealth_exp_relaxation, connectivity_exp_relaxation)
-
     if iter == iteration - 1 and trial < 2:
-        independents, subordinates, wealths  = [], [], []
-        for id in range(num_families):
-            wealths.append(families[id].wealth)
-            if families[id].status == 1:
-                independents.append(id)
-            else:
-                subordinates.append(id)
-
-        wealths = np.array(wealths)
-
-        fig = plt.figure()
-        ax = fig.add_subplot(1,1,1)
-        ax.hist(np.ravel(connection[independents]), bins = 50, alpha = 0.5, color = "b", density = 1)
-        ax.hist(np.ravel(connection[subordinates]), bins = 50, alpha = 0.5, color = "m", density = 1)
-        ax.set_xlabel("weight",fontsize=24)
-        ax.set_yscale('log')
-        # ax.set_ylabel(r"$\lambda_i$",fontsize=18)
-        # ax.set_ylim(-0.1,1.5)
-        ax.tick_params(labelsize=18)
-        fig.tight_layout()
-        fig.savefig(f"figs/{path}_{trial}_connection_from.pdf")
-        plt.close('all')
-
         statuses_c = []
         for family in families:
             if family.status == 1:
@@ -469,9 +446,11 @@ def main():
         fig.savefig(f"figs/{path}_{trial}_connection_eta_{population_ratio}pc.pdf")
         plt.close('all')
 
+        max_val = max(10, max(connection_to_ls))
         fig = plt.figure()
         ax = fig.add_subplot(1,1,1)
         ax.hist(connection_to_ls, bins = 50, density = 1)
+        ax.set_xlim(0, max(connection_to_ls) + 3)
         ax.set_xlabel("connectivity",fontsize=24)
         ax.set_yscale('log')
         # ax.set_ylabel(r"$\lambda_i$",fontsize=18)
@@ -485,13 +464,16 @@ def main():
         ax = fig.add_subplot(1,1,1)
         ax.hist(connection_to_ls, bins = np.logspace(0, np.log10(max(connection_to_ls)), 50), density = 1)
         ax.set_xlabel("connectivity",fontsize=24)
+        ax.set_xscale('log')
         ax.set_yscale('log')
+        ax.set_xlim(1, max_val + 10)
         # ax.set_ylabel(r"$\lambda_i$",fontsize=18)
         # ax.set_ylim(-0.1,1.5)
-        ax.tick_params(labelsize=18)
+        ax.tick_params(labelsize=22)
         fig.tight_layout()
         fig.savefig(f"figs/{path}_{trial}_connectivity_log_log_{population_ratio}pc.pdf")
         plt.close('all')
+
 
         fig = plt.figure()
         ax = fig.add_subplot(1,1,1)
@@ -505,123 +487,24 @@ def main():
         fig.savefig(f"figs/{path}_{trial}_wealth_log_{population_ratio}pc.pdf")
         plt.close('all')
 
+        max_val = max(10, np.max(wealth_ls))
         fig = plt.figure()
         ax = fig.add_subplot(1,1,1)
-        ax.hist(wealth_ls, bins = np.logspace(0, np.log10(np.max(wealths)), 50), density = 1)
+        ax.hist(wealth_ls, bins = np.logspace(0, np.log10(np.max(wealth_ls)), 50), density = 1)
         ax.set_xlabel("wealth",fontsize=24)
+        ax.set_xscale('log')
         ax.set_yscale('log')
+        ax.set_xlim(1, max_val + 10)
         # ax.set_ylabel(r"$\lambda_i$",fontsize=18)
         # ax.set_ylim(-0.1,1.5)
-        ax.tick_params(labelsize=18)
+        ax.tick_params(labelsize=22)
         fig.tight_layout()
         fig.savefig(f"figs/{path}_{trial}_wealth_log_log_{population_ratio}pc.pdf")
         plt.close('all')
 
-        fig = plt.figure()
-        ax = fig.add_subplot(1,1,1)
-        ax.plot(wealth_gini_series, color = "b", label = "wealth")
-        ax.plot(connectivity_gini_series, color = "orange", label = "connectivity")
-        ax.set_xlabel("time",fontsize=24)
-        ax.set_ylabel("gini coef.",fontsize=24)
-        ax.set_ylim(-0.1,1.1)
-        ax.legend()
-        ax.tick_params(labelsize=18)
-        fig.tight_layout()
-        fig.savefig(f"figs/{path}_{trial}_gini.pdf")
-        plt.close('all')
 
-        fig = plt.figure()
-        ax = fig.add_subplot(1,1,1)
-        ax.plot(wealth_gini_series[:2 * gini_relaxation], color = "b", label = "wealth")
-        ax.plot(connectivity_gini_series[:2 * gini_relaxation], color = "orange", label = "connectivity")
-        ax.set_xlabel("time",fontsize=24)
-        ax.set_ylabel("gini coef.",fontsize=24)
-        ax.set_ylim(-0.1,1.1)
-        ax.legend()
-        ax.tick_params(labelsize=18)
-        fig.tight_layout()
-        fig.savefig(f"figs/{path}_{trial}_gini_initial.pdf")
-        plt.close('all')
 
-        fig = plt.figure()
-        ax = fig.add_subplot(1,1,1)
-        ax.plot(wealth_exp_series[5 * exchange:], color = "b", label = "wealth")
-        ax.plot(connectivity_exp_series[5 * exchange:], color = "orange", label = "connectivity")
-        ax.set_xlabel("time",fontsize=24)
-        ax.set_ylabel("equality",fontsize=24)
-        ax.legend()
-        ax.tick_params(labelsize=18)
-        fig.tight_layout()
-        fig.savefig(f"figs/{path}_{trial}_exp_5.pdf")
-        plt.close('all')
-
-        fig = plt.figure()
-        ax = fig.add_subplot(1,1,1)
-        ax.plot(wealth_exp_series[:2 * exp_relaxation], color = "b", label = "wealth")
-        ax.plot(connectivity_exp_series[:2 * exp_relaxation], color = "orange", label = "connectivity")
-        ax.set_xlabel("time",fontsize=24)
-        ax.set_ylabel("equality",fontsize=24)
-        ax.set_yscale("log")
-        ax.legend()
-        ax.tick_params(labelsize=18)
-        fig.tight_layout()
-        fig.savefig(f"figs/{path}_{trial}_exp_initial.pdf")
-        plt.close('all')
-
-        fig = plt.figure()
-        ax = fig.add_subplot(1,1,1)
-        ax.plot(wealth_exp_series, color = "b", label = "wealth")
-        ax.plot(connectivity_exp_series, color = "orange", label = "connectivity")
-        ax.set_xlabel("time",fontsize=24)
-        ax.set_ylabel("equality",fontsize=24)
-        ax.legend()
-        ax.tick_params(labelsize=18)
-        fig.tight_layout()
-        fig.savefig(f"figs/{path}_{trial}_exp.pdf")
-        plt.close('all')
-
-        # fig = plt.figure()
-        # ax = fig.add_subplot(1,1,1)
-        # ax.plot(gift_ratio_series, color = "b", label = "gift")
-        # ax.plot(inheritance_series, color = "orange", label = "inheritance")
-        # ax.set_xlabel("time",fontsize=18)
-        # ax.set_ylabel("value",fontsize=18)
-        # ax.legend()
-        # ax.tick_params(labelsize=14)
-        # fig.tight_layout()
-        # fig.savefig(f"figs/{path}_{trial}_strategy.pdf")
-        # plt.close('all')
-
-        fig = plt.figure()
-        ax = fig.add_subplot(1,1,1)
-        ax.plot(cluster_series, color = "b", label = "cluster")
-        ax.plot(flow_hierarchy_series, color = "orange", label = "hierarchy")
-        ax.set_xlabel("time",fontsize=24)
-        ax.set_ylabel("value",fontsize=24)
-        ax.set_ylim(-0.1,1.1)
-        ax.legend()
-        ax.tick_params(labelsize=18)
-        fig.tight_layout()
-        fig.savefig(f"figs/{path}_{trial}_index.pdf")
-        plt.close('all')
-
-        fig = plt.figure()
-        ax = fig.add_subplot(1,1,1)
-        ax.plot(corelation_series, color = "b", label = "corelation")
-        ax.plot(population_ratio_series, color = "orange", label = "status")
-        ax.plot(payback_series, color = "red", label = "payback")
-        ax.set_xlabel("time",fontsize=24)
-        ax.set_ylabel("value",fontsize=24)
-        ax.set_ylim(-0.8,1.1)
-        ax.legend()
-        ax.tick_params(labelsize=18)
-        fig.tight_layout()
-        fig.savefig(f"figs/{path}_{trial}_corr_pop.pdf")
-        plt.close('all')
-
-    last = min (500, 5 * exchange)
-
-    res = [100 - mean(population_ratio_series[-last:]) * 100, mean(inheritance_series[-last:]), mean(flow_hierarchy_series[-last:]), mean(cluster_series[-last:]),mean(corelation_series[-last:]), mean(independent_duration_res), mean(subordinate_duration_res), mean(rich_duration_res), mean(connectivity_exp_series[-last:]), mean(connectivity_gini_series[-last:]),  mean(wealth_exp_series[-last:]), mean(wealth_gini_series[-last:]), mean(payback_series[-last:]), wealth_gini_relaxation, connectivity_gini_relaxation, wealth_exp_relaxation, connectivity_exp_relaxation]
+    res = [100 - mean(population_ratio_series[-last:]) * 100, mean(flow_hierarchy_series[-last:]), mean(cluster_series[-last:]),mean(corelation_series[-last:]), mean(independent_duration_res), mean(subordinate_duration_res), mean(rich_duration_res), connectivity_exp, connectivity_power, mean(connectivity_gini_series[-last:]), wealth_exp, wealth_power, mean(wealth_gini_series[-last:]), mean(payback_series[-last:])]
 
     return res
 
@@ -636,29 +519,31 @@ feedback = 0.3
 inheritance = 0.0
 eta = 0.1
 exchange = 100
-exchange = 1
+exchange = 10
 trial = 0
 
 # trial = 3
 # trial
-# trial = 0
-# for exchange in [1, 10, 100]:
-#     iteration = min(1000, 30 * exchange)
-#     path = f"{num_states}states_{num_families}fam_{exchange}exchange_eta{round(eta * 100)}pc_interest{round(interest * 10)}pd_inheritance{round(inheritance * 100)}pc"
+# trial = 1
+# for trial in range(10):
+#     iteration = 50 * exchange
+#     path = f"4_{num_states}states_{num_families}fam_{exchange}exchange_eta{round(eta * 100)}pc_interest{round(interest * 1000)}pm_inheritance{round(inheritance * 100)}pc"
 #     res = main()
 #     params = [exchange, eta, interest, num_states, num_families]
 #     params.extend(res)
 #     df_res[len(df_res.columns)] = params
-#     print(df_res)
+    # print(df_res)
 
-# df_res
+
 # inheritance = [0.0, 1.0][int(sys.argv[1]) // 2 % 2]
-interest = [1.5, 1.1, 1.2, 2.0, 3.0][int(sys.argv[1]) // 5 % 5]
-for exchange in [[1, 30], [2, 80], [3, 100], [5, 50], [8, 10, 20]][int(sys.argv[1]) % 5]:
-    iteration = 50 * exchange
-    df_res = pd.DataFrame(index = ["exchange", "eta", "interest", "num_states", "num_families", "population_ratio", "inheritance", "hierarchy", "cluster_index", "corrcoef", "independent_duration", "subordinate_duration", "rich_duration", "connectivity_exp", "connectivity_gini", "wealth_exp", "wealth_gini", "payback", "wealth_gini_relaxation", "connectivity_gini_relaxation", "wealth_exp_relaxation", "connectivity_exp_relaxation"])
-    path = f"{num_states}states_{num_families}fam_{exchange}exchange_eta{round(eta * 100)}pc_interest{round(interest * 10)}pd_inheritance{round(inheritance * 100)}pc"
-    for trial in range(100):
+# interest = [1.0001, 1.001, 1.01, 1.1, 1.2][int(sys.argv[1]) // 5 % 5]
+interest = [1.0, 1.001, 1.01, 1.1, 1.2, 1.5, 2.0][int(sys.argv[1]) // 7 % 7]
+for exchange in [[8, 10], [5, 20], [3, 30], [2, 50], [1, 80], [100], [200]][int(sys.argv[1]) % 7]:
+    iteration = 50 * exchange + 100
+    df_res = pd.DataFrame(index = ["exchange", "eta", "interest", "num_states", "num_families", "population_ratio", "hierarchy", "cluster_index", "corrcoef", "independent_duration", "subordinate_duration", "rich_duration", "connectivity_exp", "connectivity_power", "connectivity_gini", "wealth_exp", "wealth_power", "wealth_gini", "payback"])
+    # path = f"{num_states}states_{num_families}fam_{exchange}exchange_eta{round(eta * 100)}pc_interest{round(interest * 1000)}pm_inheritance{round(inheritance * 100)}pc"
+    path = f"{num_states}states_{num_families}fam_{exchange}exchange_eta{round(eta * 100)}pc_interest{round(interest * 1000)}pm_inheritance{round(inheritance * 100)}pc"
+    for trial in range(30):
         try:
             res = main()
             params = [exchange, eta, interest, num_states, num_families]
@@ -667,3 +552,19 @@ for exchange in [[1, 30], [2, 80], [3, 100], [5, 50], [8, 10, 20]][int(sys.argv[
         except:
             pass
     df_res.to_csv(f"res/res_{path}.csv")
+
+# interest = [1.0, 1.001, 1.01, 1.1, 1.2, 1.5, 2.0][int(sys.argv[1]) // 8 % 7]
+# for exchange in [[10, 20], [8, 30], [5, 50], [3, 80], [2, 100], [1, 200], [300], [500]][int(sys.argv[1]) % 8]:
+#     iteration = 50 * exchange
+#     df_res = pd.DataFrame(index = ["exchange", "eta", "interest", "num_states", "num_families", "population_ratio", "hierarchy", "cluster_index", "corrcoef", "independent_duration", "subordinate_duration", "rich_duration", "connectivity_exp", "connectivity_power", "connectivity_gini", "wealth_exp", "wealth_power", "wealth_gini", "payback"])
+#     # path = f"{num_states}states_{num_families}fam_{exchange}exchange_eta{round(eta * 100)}pc_interest{round(interest * 1000)}pm_inheritance{round(inheritance * 100)}pc"
+#     path = f"{num_states}states_{num_families}fam_{exchange}exchange_eta{round(eta * 100)}pc_interest{round(interest * 1000)}pm_inheritance{round(inheritance * 100)}pc"
+#     for trial in range(30):
+#         try:
+#             res = main()
+#             params = [exchange, eta, interest, num_states, num_families]
+#             params.extend(res)
+#             df_res[len(df_res.columns)] = params
+#         except:
+#             pass
+#     df_res.to_csv(f"res/res_{path}.csv")

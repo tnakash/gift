@@ -11,7 +11,8 @@ from collections import Counter
 from scipy.optimize import curve_fit
 import networkx.algorithms.community as nx_comm
 
-
+for x in sys.argv:
+    print(x)
 
 if int(sys.argv[1])==0:
     if not os.path.exists("./res"):
